@@ -24,6 +24,7 @@ const listener = app.listen(process.env.PORT, function() {
   console.log("Your app is listening on port " + listener.address().port);
 });
 
+let currentlyAssignedUser = null;
 
 app.post("/slack/actions", async (req, res) => {
   const payload = JSON.parse(req.body.payload);
@@ -41,11 +42,11 @@ app.post("/slack/actions", async (req, res) => {
   // 🔁 Logic based on button clicked
   switch (actionId) {
     case "acknowledge_alert":
+      currentlyAssignedUser = userId;
       reactionsToAdd.push("loading");
       reactionsToRemove.push("handovers");
       newContextLine = `*Currently assigned to:* <@${userId}>`;
 
-      // remove assign button
       updatedBlocks = removeButtonByActionId(payload.message.blocks, "acknowledge_alert");
       break;
 
@@ -54,13 +55,14 @@ app.post("/slack/actions", async (req, res) => {
       reactionsToRemove.push("loading");
       newContextLine = `*Was previously assigned to:* <@${userId}>`;
 
-      // re-add assign button
+      currentlyAssignedUser = null; // reset assignment
       updatedBlocks = addAssignButtonIfMissing(payload.message.blocks);
       break;
 
     case "validated_alert":
       reactionsToAdd.push("check");
       newContextLine = `*Issue validated by:* <@${userId}>`;
+
       updatedBlocks = payload.message.blocks.filter(block => block.type !== "actions");
       break;
 
@@ -104,18 +106,56 @@ app.post("/slack/actions", async (req, res) => {
     ]
   });
 
+  // ✅ Conditionally show "Issue validated!" only if assigned
+  const showValidated = currentlyAssignedUser !== null;
+
+
+  const actionsBlock = {
+    type: "actions",
+    elements: []
+  };
+
+  if (actionId !== "acknowledge_alert") {
+    actionsBlock.elements.push({
+      type: "button",
+      text: { type: "plain_text", text: ":loading: Assign to me!" },
+      action_id: "acknowledge_alert"
+    });
+  }
+
+  actionsBlock.elements.push({
+    type: "button",
+    text: { type: "plain_text", text: ":handovers: Handoff" },
+    action_id: "handoff_alert"
+  });
+
+  if (showValidated) {
+    actionsBlock.elements.push({
+      type: "button",
+      text: { type: "plain_text", text: ":check: Issue validated!" },
+      action_id: "validated_alert"
+    });
+  }
+
+  // Only add actions block if validated wasn't clicked (removes buttons permanently)
+  const finalBlocks = actionId === "validated_alert"
+    ? blocksWithoutContext
+    : [...blocksWithoutContext.filter(b => b.type !== "actions"), actionsBlock];
+
   // 📨 Respond via response_url
   await fetch(payload.response_url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       replace_original: true,
-      blocks: blocksWithoutContext
+      blocks: finalBlocks
     })
   });
 
   res.send(); // done!
 });
+
+// 👇 Helpers (unchanged + new one)
 
 function removeButtonByActionId(blocks, actionIdToRemove) {
   return blocks.map(block => {
@@ -143,3 +183,4 @@ function addAssignButtonIfMissing(blocks) {
     return block;
   });
 }
+

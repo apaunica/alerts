@@ -29,34 +29,59 @@ app.post("/slack/actions", async (req, res) => {
   console.log("🔔 Button click received!");
 
   const payload = JSON.parse(req.body.payload);
-  console.log("Payload:", payload);
-
-  const { channel, ts } = payload.message;
-  const user = payload.user.username;
+  const channel = payload.container.channel_id;
+  const ts = payload.container.message_ts;
+  const userId = payload.user.id;
+  const userName = payload.user.username;
   const token = process.env.SLACK_BOT_TOKEN;
 
-  try {
-    const result = await fetch("https://slack.com/api/reactions.add", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        name: "white_check_mark",
-        channel: channel,
-        timestamp: ts
-      })
-    });
+  // ✅ 1. Add ✅ reaction
+  const reactResult = await fetch("https://slack.com/api/reactions.add", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      name: "white_check_mark",
+      channel: channel,
+      timestamp: ts
+    })
+  });
+  const reactJson = await reactResult.json();
+  console.log("Reaction result:", reactJson);
 
-    const json = await result.json();
-    console.log("Reaction result:", json);
+  // ✅ 2. Update original message to include assignment line
+  const updateResult = await fetch("https://slack.com/api/chat.update", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      channel: channel,
+      ts: ts,
+      text: payload.message.text, // fallback plain text
+      blocks: [
+        ...payload.message.blocks,
+        {
+          "type": "context",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": `*Currently assigned to:* <@${userId}>`
+            }
+          ]
+        }
+      ]
+    })
+  });
+  const updateJson = await updateResult.json();
+  console.log("Message update result:", updateJson);
 
-    res.send({
-      text: `✅ Acknowledged by @${user}`
-    });
-  } catch (err) {
-    console.error("❌ Error reacting:", err);
-    res.status(500).send("Error");
-  }
+  // ✅ 3. Send simple confirmation back to Slack
+  res.send({
+    text: `✅ Acknowledged and assigned to <@${userId}>`
+  });
 });
+

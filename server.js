@@ -43,7 +43,7 @@ app.post("/slack/actions", async (req, res) => {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      name: "white_check_mark",
+      name: "loading",
       channel: channel,
       timestamp: ts
     })
@@ -52,16 +52,13 @@ app.post("/slack/actions", async (req, res) => {
   console.log("Reaction result:", reactJson);
 
   // ✅ 2. Update original message to include assignment line
-  const updateResult = await fetch("https://slack.com/api/chat.update", {
+  await fetch(payload.response_url, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      channel: channel,
-      ts: ts,
-      text: payload.message.text, // fallback plain text
+      replace_original: true,
       blocks: [
         ...payload.message.blocks,
         {
@@ -76,8 +73,6 @@ app.post("/slack/actions", async (req, res) => {
       ]
     })
   });
-  const updateJson = await updateResult.json();
-  console.log("Message update result:", updateJson);
 
   // ✅ 3. Send simple confirmation back to Slack
   res.send({

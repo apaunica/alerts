@@ -59,8 +59,9 @@ app.post("/slack/actions", async (req, res) => {
       break;
 
     case "validated_alert":
-      reactionsToAdd.push("white_check_mark");
+      reactionsToAdd.push("check");
       newContextLine = `*Issue validated by:* <@${userId}>`;
+      updatedBlocks = payload.message.blocks.filter(block => block.type !== "actions");
       break;
 
     default:

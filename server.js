@@ -26,57 +26,119 @@ const listener = app.listen(process.env.PORT, function() {
 
 
 app.post("/slack/actions", async (req, res) => {
-  console.log("🔔 Button click received!");
-
   const payload = JSON.parse(req.body.payload);
+  const actionId = payload.actions[0].action_id;
+  const userId = payload.user.id;
   const channel = payload.container.channel_id;
   const ts = payload.container.message_ts;
-  const userId = payload.user.id;
-  const userName = payload.user.username;
   const token = process.env.SLACK_BOT_TOKEN;
 
-  // ✅ 1. Add ✅ reaction
-  const reactResult = await fetch("https://slack.com/api/reactions.add", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      name: "loading",
-      channel: channel,
-      timestamp: ts
-    })
-  });
-  const reactJson = await reactResult.json();
-  console.log("Reaction result:", reactJson);
+  let updatedBlocks = payload.message.blocks;
+  let reactionsToAdd = [];
+  let reactionsToRemove = [];
+  let newContextLine = "";
 
-  // ✅ 2. Update original message to include assignment line
+  // 🔁 Logic based on button clicked
+  switch (actionId) {
+    case "acknowledge_alert":
+      reactionsToAdd.push("loading");
+      reactionsToRemove.push("handovers");
+      newContextLine = `*Currently assigned to:* <@${userId}>`;
+
+      // remove assign button
+      updatedBlocks = removeButtonByActionId(payload.message.blocks, "acknowledge_alert");
+      break;
+
+    case "handoff_alert":
+      reactionsToAdd.push("handovers");
+      reactionsToRemove.push("loading");
+      newContextLine = `*Was previously assigned to:* <@${userId}>`;
+
+      // re-add assign button
+      updatedBlocks = addAssignButtonIfMissing(payload.message.blocks);
+      break;
+
+    case "validated_alert":
+      reactionsToAdd.push("white_check_mark");
+      newContextLine = `*Issue validated by:* <@${userId}>`;
+      break;
+
+    default:
+      console.log("Unknown action_id:", actionId);
+  }
+
+  // 🌀 Add and remove reactions
+  for (const name of reactionsToRemove) {
+    await fetch("https://slack.com/api/reactions.remove", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ name, channel, timestamp: ts })
+    });
+  }
+
+  for (const name of reactionsToAdd) {
+    await fetch("https://slack.com/api/reactions.add", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ name, channel, timestamp: ts })
+    });
+  }
+
+  // 🧱 Append or replace context line
+  const blocksWithoutContext = updatedBlocks.filter(block => block.type !== "context");
+
+  blocksWithoutContext.push({
+    type: "context",
+    elements: [
+      {
+        type: "mrkdwn",
+        text: newContextLine
+      }
+    ]
+  });
+
+  // 📨 Respond via response_url
   await fetch(payload.response_url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       replace_original: true,
-      blocks: [
-        ...payload.message.blocks,
-        {
-          "type": "context",
-          "elements": [
-            {
-              "type": "mrkdwn",
-              "text": `*Currently assigned to:* <@${userId}>`
-            }
-          ]
-        }
-      ]
+      blocks: blocksWithoutContext
     })
   });
 
-  // ✅ 3. Send simple confirmation back to Slack
-  res.send({
-    text: `✅ Acknowledged and assigned to <@${userId}>`
-  });
+  res.send(); // done!
 });
 
+function removeButtonByActionId(blocks, actionIdToRemove) {
+  return blocks.map(block => {
+    if (block.type === "actions") {
+      const filtered = block.elements.filter(btn => btn.action_id !== actionIdToRemove);
+      return { ...block, elements: filtered };
+    }
+    return block;
+  });
+}
+
+function addAssignButtonIfMissing(blocks) {
+  return blocks.map(block => {
+    if (block.type === "actions") {
+      const hasAssign = block.elements.some(btn => btn.action_id === "acknowledge_alert");
+      if (!hasAssign) {
+        block.elements.unshift({
+          type: "button",
+          text: { type: "plain_text", text: ":loading: Assign to me!" },
+          action_id: "acknowledge_alert"
+        });
+      }
+      return block;
+    }
+    return block;
+  });
+}

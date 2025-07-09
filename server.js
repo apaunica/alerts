@@ -19,6 +19,11 @@ app.get("/", function(request, response) {
   response.sendFile(__dirname + "/views/index.html");
 });
 
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.send("OK");
+});
+
 // listen for requests :)
 const listener = app.listen(process.env.PORT, function() {
   console.log("Your app is listening on port " + listener.address().port);

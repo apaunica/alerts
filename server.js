@@ -66,7 +66,7 @@ app.post("/slack/actions", async (req, res) => {
 
     case "validated_alert":
       reactionsToAdd.push("check");
-      newContextLine = `*Issue validated by:* <@${userId}>`;
+      newContextLine = `*Issue reviewed by:* <@${userId}>`;
 
       updatedBlocks = payload.message.blocks.filter(block => block.type !== "actions");
       break;
@@ -137,7 +137,7 @@ app.post("/slack/actions", async (req, res) => {
   if (showValidated) {
     actionsBlock.elements.push({
       type: "button",
-      text: { type: "plain_text", text: ":check: Issue validated!" },
+      text: { type: "plain_text", text: ":check: Issue reviewed!" },
       action_id: "validated_alert"
     });
   }
